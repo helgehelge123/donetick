@@ -67,3 +67,23 @@ adds one feature on top of upstream's private projects (donetick/donetick#749,
 
 Tests for all of the above: `go test ./...` (see `*members*_test.go`,
 `visibility_test.go`, `migration_visibility_test.go`).
+
+## Moving to a new upstream release
+
+`update/upstream-update.sh <tag>` (in the deployment folder) rebases this branch
+onto the tag and the frontend branch onto the matching upstream `develop` commit.
+Things that have needed attention so far:
+
+* Upstream tests that `AutoMigrate` a hand-picked list of models (for example
+  `internal/sync/handler_test.go`, `internal/chore/repo/tombstone_test.go`,
+  `internal/chore/api_permissions_test.go` in v0.1.81) fail with
+  `no such table: project_members` because `privacyJoins` joins that table. Add
+  `&pModel.ProjectMember{}` to their list.
+* Every new read path over chores must use `ChoreRepository.GetChores`/`GetChore`
+  (or `privacyJoins` + `privacyPredicate`). Checked for v0.1.81-beta.4: the new
+  iCal endpoint (`internal/calendar`) uses `GetChores` with the token's user, and
+  the delegate handler only accepts existing assignees, so both stay inside the
+  project audience.
+* `Chore.CanView`/`CanComplete` and `checkNextAssignee` carry the project rule;
+  keep that when upstream edits those functions (v0.1.81 adds `CanDelegate`
+  right next to them).
