@@ -53,6 +53,7 @@ func Migration(db *gorm.DB) error {
 		lModel.Label{},
 		chModel.ChoreLabels{},
 		projModel.Project{},
+		projModel.ProjectMember{},
 		filterModel.Filter{},
 		migrations.Migration{},
 		pModel.PointsHistory{},
