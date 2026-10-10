@@ -55,6 +55,27 @@ adds one feature on top of upstream's private projects (donetick/donetick#749,
   `chore.deleted` event; `project.updated` tells clients to refresh.
 * Reminders of restricted projects never go to the circle group chat or the
   circle webhook; the external API (`/eapi`) checks project visibility.
+* Impersonation (`X-Impersonate-User-ID`, available to circle admins and
+  managers for any member) cannot reach into a chore the actual user could not
+  see themselves; acting for one's own sub-account stays allowed
+  (`impersonationGuard` in the chore handler).
+* When a member leaves or is removed from the circle, chores they created inside
+  a restricted project stay with the project and its owner takes them over
+  (`HandOverToProjectOwner`); upstream would move them into the member's home
+  circle, where nobody can see a restricted project's chore. Chores moved along
+  lose their project reference (the project belongs to the old circle). Projects
+  the leaving user owned are removed, their remaining chores detached and kept.
+  Account deletion removes the user's projects the same way.
+* Thing triggers only reschedule chores their owner can still see.
+
+## Known trade-offs
+
+* Members of a shared project see its full member list (`memberIds`); nobody
+  outside the audience does.
+* Revoking access writes one user-scoped tombstone per task and per history
+  entry of that task, so revoked clients drop both. Large projects with many
+  completions produce correspondingly many rows; `tombstones` is never pruned.
+* Signed attachment links stay valid until they expire, also after a revocation.
 
 ## Behaviour changes compared to upstream v0.1.80
 
@@ -64,6 +85,8 @@ adds one feature on top of upstream's private projects (donetick/donetick#749,
   would otherwise drop a task they can see again.
 * Project privacy changes no longer delete reminders without regenerating them.
 * Archiving/unarchiving requires that the user can still see the task.
+* Deleting a project regenerates the reminders of chores whose audience shrank.
+* `circle.NewHandler` takes the project repository as an additional argument.
 
 Tests for all of the above: `go test ./...` (see `*members*_test.go`,
 `visibility_test.go`, `migration_visibility_test.go`).

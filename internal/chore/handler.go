@@ -1448,6 +1448,9 @@ func (h *Handler) StartChore(c *gin.Context) {
 		})
 		return
 	}
+	if !h.impersonationGuard(c, chore, actualUser, effectiveUser, hasImpersonation) {
+		return
+	}
 	if !validateActionVersion(c, "start", chore, req.ActionOptions) {
 		return
 	}
@@ -1620,6 +1623,9 @@ func (h *Handler) PauseChore(c *gin.Context) {
 		c.JSON(500, gin.H{
 			"error": "Failed to retrieve chore",
 		})
+		return
+	}
+	if !h.impersonationGuard(c, chore, actualUser, effectiveUser, hasImpersonation) {
 		return
 	}
 	if !validateActionVersion(c, "pause", chore, req.ActionOptions) {
@@ -1893,6 +1899,9 @@ func (h *Handler) SkipChore(c *gin.Context) {
 		c.JSON(500, gin.H{
 			"error": "Failed to retrieve chore",
 		})
+		return
+	}
+	if !h.impersonationGuard(c, chore, actualUser, effectiveUser, hasImpersonation) {
 		return
 	}
 
@@ -2314,6 +2323,9 @@ func (h *Handler) CompleteChore(c *gin.Context) {
 		c.JSON(500, gin.H{
 			"error": "Failed to retrieve chore",
 		})
+		return
+	}
+	if !h.impersonationGuard(c, chore, actualUser, effectiveUser, hasImpersonation) {
 		return
 	}
 	if !validateActionVersion(c, "complete", chore, req.ActionOptions) {
@@ -3088,6 +3100,9 @@ func (h *Handler) UpdateSubtaskCompletedAt(c *gin.Context) {
 		c.JSON(500, gin.H{
 			"error": "Failed to retrieve chore",
 		})
+		return
+	}
+	if !h.impersonationGuard(c, chore, actualUser, effectiveUser, hasImpersonation) {
 		return
 	}
 	circleUsers, err := h.circleRepo.GetCircleUsers(c, actualUser.CircleID)
@@ -4042,6 +4057,29 @@ func (h *Handler) updateTimer(c *gin.Context) { // TODO: Not used in Routes
 	c.JSON(200, gin.H{
 		"message": "Chore timer updated successfully",
 	})
+}
+
+// impersonationGuard keeps an admin or manager who acts as another member
+// (X-Impersonate-User-ID) from reaching into a chore they could not see
+// themselves, e.g. one in a project that is private to or shared with the
+// impersonated user only. Managing a sub-account stays possible: a parent may
+// act for their own child. Writes a 403 and returns false when blocked.
+func (h *Handler) impersonationGuard(c *gin.Context, chore *chModel.Chore, actualUser, effectiveUser *uModel.UserDetails, hasImpersonation bool) bool {
+	if !hasImpersonation || actualUser == nil || effectiveUser == nil || actualUser.ID == effectiveUser.ID {
+		return true
+	}
+	if effectiveUser.ParentUserID != nil && *effectiveUser.ParentUserID == actualUser.ID {
+		return true
+	}
+	if _, err := h.choreRepo.GetChore(c, chore.ID, actualUser.ID, actualUser.CircleID); err == nil {
+		return true
+	}
+	logging.FromContext(c).Warn("Impersonation into a chore the actual user cannot see was blocked",
+		"actualUserID", actualUser.ID, "impersonatedUserID", effectiveUser.ID, "choreID", chore.ID)
+	c.JSON(403, gin.H{
+		"error": "You are not allowed to act on this chore on behalf of another user",
+	})
+	return false
 }
 
 func checkNextAssignee(chore *chModel.Chore, choresHistory []*chModel.ChoreHistory, performerID int, circleUsers []*circle.UserCircleDetail) (*int, error) {

@@ -175,6 +175,11 @@ func EvaluateTriggerAndScheduleDueDate(h *Handler, c *gin.Context, thing *tModel
 	for _, tc := range thingChores {
 		triggered := EvaluateThingChore(tc, thing.State)
 		if triggered {
+			// A trigger set up by someone who can no longer see the chore (e.g. after
+			// being removed from the project) must not keep rescheduling it.
+			if _, err := h.choreRepo.GetChore(c, tc.ChoreID, thing.UserID, thing.CircleID); err != nil {
+				continue
+			}
 			err := h.choreRepo.SetDueDateIfNotExisted(c, tc.ChoreID, time.Now().UTC())
 			if err != nil {
 				c.JSON(500, gin.H{"error": err.Error()})

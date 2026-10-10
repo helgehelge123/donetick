@@ -415,3 +415,32 @@ func RemoveAssigneeAndReassign(chore *chModel.Chore, userID int) {
 	}
 	chore.UpdatedAt = time.Now().UTC()
 }
+
+// HandOverToProjectOwner is used when the creator of a chore leaves the circle
+// while the chore sits in a project that is private to or shared with selected
+// members: the chore stays with the project and its owner takes over authorship
+// and the leaving user's assignment, so it neither vanishes nor follows the
+// leaving user into a circle where the project does not exist.
+func HandOverToProjectOwner(chore *chModel.Chore, leavingUserID int, ownerID int) {
+	kept := make([]chModel.ChoreAssignees, 0, len(chore.Assignees))
+	for _, assignee := range chore.Assignees {
+		if assignee.UserID != leavingUserID {
+			kept = append(kept, assignee)
+		}
+	}
+	chore.Assignees = kept
+	if chore.AssignStrategy == chModel.AssignmentStrategyNoAssignee {
+		chore.AssignedTo = nil
+	} else {
+		if len(chore.Assignees) == 0 {
+			chore.Assignees = append(chore.Assignees, chModel.ChoreAssignees{ChoreID: chore.ID, UserID: ownerID})
+		}
+		if chore.AssignedTo == nil || *chore.AssignedTo == leavingUserID {
+			owner := ownerID
+			chore.AssignedTo = &owner
+		}
+	}
+	chore.CreatedBy = ownerID
+	chore.UpdatedBy = ownerID
+	chore.UpdatedAt = time.Now().UTC()
+}
