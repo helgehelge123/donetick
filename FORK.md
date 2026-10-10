@@ -59,22 +59,34 @@ adds one feature on top of upstream's private projects (donetick/donetick#749,
   managers for any member) cannot reach into a chore the actual user could not
   see themselves; acting for one's own sub-account stays allowed
   (`impersonationGuard` in the chore handler).
+* Completing a chore on behalf of someone (`completedBy`, admins/managers) only
+  credits people who can see the chore.
 * When a member leaves or is removed from the circle, chores they created inside
   a restricted project stay with the project and its owner takes them over
   (`HandOverToProjectOwner`); upstream would move them into the member's home
-  circle, where nobody can see a restricted project's chore. Chores moved along
-  lose their project reference (the project belongs to the old circle). Projects
-  the leaving user owned are removed, their remaining chores detached and kept.
-  Account deletion removes the user's projects the same way.
-* Thing triggers only reschedule chores their owner can still see.
+  circle, where nobody can see a restricted project's chore. Chores that do move
+  along lose their project reference (the project belongs to the old circle) and
+  get circle-wide tombstones (chore + history) in the old circle, so the
+  remaining members' devices drop them. Restricted projects the leaving user
+  owned are removed, their remaining chores detached and kept; circle-wide
+  projects stay, as upstream keeps them. Account deletion does the same and also
+  prunes the revocation tombstones addressed to the deleted user.
+* Thing triggers only reschedule chores their owner can still see, checked in
+  the owner's current circle (`Thing.CircleID` is never set by upstream).
 
 ## Known trade-offs
 
-* Members of a shared project see its full member list (`memberIds`); nobody
-  outside the audience does.
+* Members of a shared project see its member list (`memberIds`, user IDs only;
+  names come from the circle member list every member sees anyway). The task
+  editor needs it to offer exactly the people a task may be assigned to; nobody
+  outside the audience gets it.
 * Revoking access writes one user-scoped tombstone per task and per history
-  entry of that task, so revoked clients drop both. Large projects with many
-  completions produce correspondingly many rows; `tombstones` is never pruned.
+  entry, because clients up to at least 1.2.55 only drop cached history through
+  history tombstones. Growth is bounded: a re-grant deletes the user's stale
+  tombstones for those entities, so repeated share/unshare cycles do not add up
+  (at most one row per user, task and history entry), and account deletion prunes
+  the user's rows. Per-device sync cursors are unknown to the server, so older
+  rows are not pruned by age.
 * Signed attachment links stay valid until they expire, also after a revocation.
 
 ## Behaviour changes compared to upstream v0.1.80
@@ -86,6 +98,8 @@ adds one feature on top of upstream's private projects (donetick/donetick#749,
 * Project privacy changes no longer delete reminders without regenerating them.
 * Archiving/unarchiving requires that the user can still see the task.
 * Deleting a project regenerates the reminders of chores whose audience shrank.
+* `PUT /chores/` without `labelsV2` keeps the labels; upstream dereferenced nil
+  and aborted the request.
 * `circle.NewHandler` takes the project repository as an additional argument.
 
 Tests for all of the above: `go test ./...` (see `*members*_test.go`,

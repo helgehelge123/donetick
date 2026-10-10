@@ -567,6 +567,37 @@ func sameIntPtr(a, b *int) bool {
 	return *a == *b
 }
 
+// TombstoneChoresLeavingCircle records circle-wide tombstones for chores (and
+// their history) that were moved out of circleID, e.g. when their creator leaves
+// the circle and takes them along. Without them, the devices of the remaining
+// members would keep showing the moved chores until their cache is rebuilt.
+func (r *ChoreRepository) TombstoneChoresLeavingCircle(ctx context.Context, circleID int, choreIDs []int) error {
+	if len(choreIDs) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var historyIDs []int
+		if err := tx.WithContext(ctx).Model(&chModel.ChoreHistory{}).Where("chore_id IN ?", choreIDs).
+			Order("id asc").Pluck("id", &historyIDs).Error; err != nil {
+			return err
+		}
+		next, err := r.nextSyncVersionRangeWithDB(ctx, tx, circleID, len(choreIDs)+len(historyIDs))
+		if err != nil {
+			return err
+		}
+		tombstones := make([]syncModel.Tombstone, 0, len(choreIDs)+len(historyIDs))
+		for _, id := range choreIDs {
+			tombstones = append(tombstones, syncModel.Tombstone{CircleID: circleID, EntityType: syncModel.EntityTypeChore, EntityID: id, SyncVersion: next})
+			next++
+		}
+		for _, id := range historyIDs {
+			tombstones = append(tombstones, syncModel.Tombstone{CircleID: circleID, EntityType: syncModel.EntityTypeChoreHistory, EntityID: id, SyncVersion: next})
+			next++
+		}
+		return tx.WithContext(ctx).CreateInBatches(&tombstones, 200).Error
+	})
+}
+
 // DeletePendingNotificationsForUser drops the not yet sent reminders addressed to a
 // user within a circle, e.g. when they leave it.
 func (r *ChoreRepository) DeletePendingNotificationsForUser(ctx context.Context, circleID int, userID int) error {

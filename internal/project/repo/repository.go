@@ -281,14 +281,16 @@ func (r *ProjectRepository) GetRestrictedProjects(ctx context.Context, circleID 
 	return byID, nil
 }
 
-// RemoveProjectsOwnedBy deletes the projects a user owns in a circle they are
-// leaving, so no project is left behind that nobody can change: remaining chores
-// are detached and follow their own privacy from then on (members get tombstones
-// for the ones they only saw through the project). Default projects are kept.
+// RemoveProjectsOwnedBy deletes the restricted (private or shared with selected
+// members) projects a user owns in a circle they are leaving, so no such project
+// is left behind that nobody can change or re-scope: remaining chores are detached
+// and follow their own privacy from then on (members get tombstones for the ones
+// they only saw through the project). Circle-wide and default projects stay, as
+// upstream keeps them.
 func (r *ProjectRepository) RemoveProjectsOwnedBy(ctx context.Context, circleID int, ownerID int) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var projects []*pModel.Project
-		if err := tx.WithContext(ctx).Where("circle_id = ? AND created_by = ? AND is_default = ?", circleID, ownerID, false).Find(&projects).Error; err != nil {
+		if err := tx.WithContext(ctx).Where("circle_id = ? AND created_by = ? AND is_default = ? AND is_private = ?", circleID, ownerID, false, true).Find(&projects).Error; err != nil {
 			return err
 		}
 		if err := access.LoadMembers(ctx, tx, projects...); err != nil {

@@ -435,11 +435,12 @@ func TestRemoveProjectsOwnedByDetachesAndDeletes(t *testing.T) {
 	theirs := &pModel.Project{Name: "theirs", CircleID: sharingCirc, CreatedBy: memberID, IsPrivate: true}
 	require.NoError(t, r.CreateProject(context.Background(), theirs))
 	byMember := newProjectChore(t, db, mine.ID, "by member", memberID, chModel.AssignmentStrategyRandom, intp(memberID), memberID)
+	newSharedProject(t, r, "household", pModel.ProjectVisibilityCircle)
 
 	require.NoError(t, r.RemoveProjectsOwnedBy(context.Background(), sharingCirc, ownerID))
 
 	names := projectNames(t, r, memberID)
-	require.Equal(t, []string{"theirs"}, names, "the owner's project is gone, the member's own project stays")
+	require.Equal(t, []string{"household", "theirs"}, names, "the owner's shared project is gone; circle-wide projects and the member's own project stay")
 	var reloaded chModel.Chore
 	require.NoError(t, db.First(&reloaded, byMember.ID).Error)
 	require.Nil(t, reloaded.ProjectID, "chores of the removed project are kept, detached")

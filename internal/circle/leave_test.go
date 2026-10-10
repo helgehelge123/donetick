@@ -3,6 +3,7 @@ package circle
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -18,6 +19,7 @@ import (
 	nModel "donetick.com/core/internal/notifier/model"
 	pModel "donetick.com/core/internal/project/model"
 	pjRepo "donetick.com/core/internal/project/repo"
+	syncModel "donetick.com/core/internal/sync/model"
 	uModel "donetick.com/core/internal/user/model"
 )
 
@@ -49,6 +51,8 @@ func TestLeavingCircleKeepsSharedProjectTasksWithTheOwner(t *testing.T) {
 	require.NoError(t, h.projectRepo.CreateProject(t.Context(), household))
 	ownProject := &pModel.Project{Name: "colleague's own", CircleID: workCircle, CreatedBy: colleague, IsPrivate: true, SharedWithMembers: true, MemberIDs: []int{owner}}
 	require.NoError(t, h.projectRepo.CreateProject(t.Context(), ownProject))
+	ownCircleProject := &pModel.Project{Name: "colleague's circle-wide", CircleID: workCircle, CreatedBy: colleague}
+	require.NoError(t, h.projectRepo.CreateProject(t.Context(), ownCircleProject))
 
 	inShared := &chModel.Chore{Name: "Kabel bestellen", CircleID: workCircle, CreatedBy: colleague, ProjectID: &shared.ID, IsPrivate: true, IsActive: true,
 		AssignStrategy: chModel.AssignmentStrategyRandom, AssignedTo: ptr(colleague), Assignees: []chModel.ChoreAssignees{{UserID: colleague}}}
@@ -61,6 +65,9 @@ func TestLeavingCircleKeepsSharedProjectTasksWithTheOwner(t *testing.T) {
 	for _, ch := range []*chModel.Chore{inShared, inHousehold, ownersInShared, byOwnerInColleagues} {
 		require.NoError(t, db.Create(ch).Error)
 	}
+	now := time.Now().UTC()
+	movedHistory := &chModel.ChoreHistory{ChoreID: inHousehold.ID, CompletedBy: colleague, PerformedAt: &now, Status: chModel.ChoreHistoryStatusCompleted}
+	require.NoError(t, db.Create(movedHistory).Error)
 	require.NoError(t, db.Create(&nModel.Notification{ChoreID: inShared.ID, CircleID: workCircle, UserID: colleague, Text: "reminder"}).Error)
 
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -105,6 +112,21 @@ func TestLeavingCircleKeepsSharedProjectTasksWithTheOwner(t *testing.T) {
 	require.Nil(t, got.ProjectID)
 	_, err = choreRepository.GetChore(t.Context(), byOwnerInColleagues.ID, owner, workCircle)
 	require.NoError(t, err)
+
+	// The remaining members' devices are told to drop the chore that moved away,
+	// and its history, with circle-wide tombstones in the work circle.
+	var tombs []syncModel.Tombstone
+	require.NoError(t, db.Where("circle_id = ? AND user_id IS NULL", workCircle).Order("sync_version").Find(&tombs).Error)
+	got2 := map[syncModel.EntityType][]int{}
+	for _, tomb := range tombs {
+		got2[tomb.EntityType] = append(got2[tomb.EntityType], tomb.EntityID)
+	}
+	require.Equal(t, []int{inHousehold.ID}, got2[syncModel.EntityTypeChore])
+	require.Equal(t, []int{movedHistory.ID}, got2[syncModel.EntityTypeChoreHistory])
+
+	// The colleague's circle-wide project stays, as upstream keeps it.
+	require.NoError(t, db.Model(&pModel.Project{}).Where("id = ?", ownCircleProject.ID).Count(&remaining).Error)
+	require.EqualValues(t, 1, remaining)
 
 	// No pending reminders and no project shares are left for the colleague.
 	var pending, shares int64
