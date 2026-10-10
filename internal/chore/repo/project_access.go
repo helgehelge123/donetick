@@ -19,8 +19,8 @@ var ErrAssigneeOutsideProject = errors.New("chores in this project can only be a
 // ProjectAccess is the audience of a project: its visibility and, for "members",
 // the users it is shared with (the owner is implied and never listed).
 type ProjectAccess struct {
-	Visibility pModel.ProjectVisibility
-	MemberIDs  []int
+	Visibility pModel.ProjectVisibility `json:"visibility"`
+	MemberIDs  []int                    `json:"memberIds"`
 }
 
 // AccessOf returns the current audience of a project whose members are loaded.

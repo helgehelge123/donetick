@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"testing"
@@ -401,4 +402,16 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func TestAccessPreviewSerializesForClients(t *testing.T) {
+	r, db := newTestRepo(t)
+	seedCircle(t, db)
+	work := newSharedProject(t, r, "work", pModel.ProjectVisibilityCircle)
+	plan, err := r.PreviewProjectAccess(context.Background(), work.ID, &pModel.ProjectReq{Visibility: visibilityPtr(pModel.ProjectVisibilityMembers), MemberIDs: idsPtr(memberID)}, ownerID, sharingCirc)
+	require.NoError(t, err)
+	raw, err := json.Marshal(plan)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"before":{"visibility":"circle","memberIds":[]}`)
+	require.Contains(t, string(raw), `"after":{"visibility":"members","memberIds":[2]}`)
 }
